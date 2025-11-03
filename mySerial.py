@@ -15,7 +15,7 @@ class SerThread(threading.Thread):
         self.lineEdit = lineEdit
         
         # 初始化串口句柄
-        self.serialPort = SerialPort(port, baudrate=4800, timeout=1)
+        self.serialPort = SerialPort(port, baudrate=115200, timeout=1)
         self.serialPort.serial.stopbits = serial.STOPBITS_TWO
         
         # 绑定串口接收、发送、更新进程回调函数
@@ -31,16 +31,48 @@ class SerThread(threading.Thread):
         # 接收数据缓存
         self.data_buffer = ""
 
-    def receive_data(self):
+
+    def receive_data_old(self):
         while self.receive_data_flag:
-            data = self.serialPort.read_data()
-            
+            data = self.serialPort.read_data()            
             if data:
                 print("Received data:", data)
             else:
                 # print("No data received.")
                 pass
             time.sleep(0.1)
+
+    def receive_data(self):
+        buffer = bytearray()
+        
+        # while self.receive_data_flag:
+        while True:
+            data = self.serialPort.read_data_all()
+            if data:
+                buffer.extend(data)
+                # print(f"检测到数据: {data.hex(' ').upper()}")
+                # print(f"当前 buffer 内容: {buffer.hex(' ').upper()}")
+                while len(buffer) >= 4:
+                    # 检查帧头
+                    if buffer[0] == 0x5A and buffer[1] == 0xA5:
+                        frame_len = buffer[2]  # 第3字节是长度
+                        # print(f"检查帧头[{frame_len}]")
+                        total_len = frame_len + 3  # 帧头2 + 长度1 + 内容
+                        if len(buffer) >= total_len:
+                            frame = buffer[:total_len]
+                            buffer = buffer[total_len:]
+                            
+                            hex_str = frame.hex(' ').upper()
+                            print(f"[FRAME] {hex_str}")
+                            
+                            if self.textBrowser:
+                                self.textBrowser.append(hex_str)
+                        else:
+                            break
+                    else:
+                        # 如果开头不是帧头，就丢弃一个字节（防止乱序）
+                        buffer.pop(0)
+            # time.sleep(0.01)
 
     def send_data(self):
         while self.send_data_flag:
@@ -68,11 +100,20 @@ class SerThread(threading.Thread):
     def stop(self):
         self.receive_data_flag = False
         self.send_data_flag = False
-        self.update_flag = False
-        self.receive_thread.join()
-        self.send_thread.join()
-        self.updata_serial_port_thread.join()
-        self.serialPort.serial.close()
+        self.update_flag = True
+        
+        # 等待线程安全退出
+        # if self.receive_thread.is_alive():
+        #     self.receive_thread.join(timeout=1)
+        # if self.send_thread.is_alive():
+        #     self.send_thread.join(timeout=1)
+        # if self.updata_serial_port_thread.is_alive():
+        #     self.updata_serial_port_thread.join(timeout=1)
+        
+        # 关闭串口
+        if self.serialPort.serial.is_open:
+            self.serialPort.serial.close()
+
 
 
 class SerialPort:
@@ -174,3 +215,22 @@ class SerialPort:
                 print(f"Failed to receive data. Error: {e}")
         else:
             return None
+        
+
+    def read_data_all(self):
+        """读取串口缓冲区的所有数据（二进制读取，不依赖换行符）"""
+        if not self.serial or not self.serial.is_open:
+            return None
+        try:
+            data = self.serial.read_all()
+            if data:
+                # print(f"[HEX] Received raw: {data.hex(' ').upper()}")
+                return data
+        except OSError as e:
+            print(f"Serial closed during read: {e}")
+            return None
+        except Exception as e:
+            print(f"Failed to read all data. Error: {e}")
+            return None
+        
+    

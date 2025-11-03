@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import sys
 
+import threading
 import time
 
 from PyQt5.QtCore import QCoreApplication
@@ -16,10 +17,10 @@ class MyMainWindow(QMainWindow, Ui_MainWindow):
     def __init__(self, parent=None):
         super(MyMainWindow, self).__init__(parent)
         self.setupUi(self)
-
-        self.openUARTPortButton.clicked.connect(self.openUARTPortButtonClick)
         self.comboBox.currentIndexChanged.connect(self.comboBox_selection_change)
         self.lineEdit.returnPressed.connect(self.sendToSerial)
+
+        self.openUARTPortButton.clicked.connect(self.openUARTPortButtonClick)
         self.selected = None
         # 创建串口线程
         self.serialThread = SerThread(comb=self.comboBox, textBrowser=self.textBrowser, lineEdit=self.lineEdit)
@@ -39,15 +40,23 @@ class MyMainWindow(QMainWindow, Ui_MainWindow):
                 
                 self.serialThread.serialPort.serial.close()
                 self.openUARTPortButton.setText("打开串口")
+                if self.textBrowser:
+                    self.textBrowser.append("串口被关闭！")
                 print('串口被关闭！')
             else:
+                if not self.serialThread.receive_thread.is_alive():
+                    self.serialThread.receive_thread = threading.Thread(target=self.serialThread.receive_data)
+                    self.serialThread.receive_thread.start()
+                if not self.serialThread.send_thread.is_alive():
+                    self.serialThread.send_thread = threading.Thread(target=self.serialThread.receive_data)
+                    self.serialThread.send_thread.start()
                 self.serialThread.serialPort.serial.open()
                 self.serialThread.receive_data_flag = True
                 self.serialThread.send_data_flag = True
-                # self.serialThread.receive_thread.start()
-                # self.serialThread.send_thread.start()
                 self.openUARTPortButton.setText("关闭串口")
                 print('串口被打开！')
+                if self.textBrowser:
+                    self.textBrowser.append("串口打开")
 
     # 关闭窗体事件
     def closeEvent(self, event):
